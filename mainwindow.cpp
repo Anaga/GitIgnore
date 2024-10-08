@@ -1,31 +1,34 @@
 #include "mainwindow.h"
 #include "./ui_mainwindow.h"
 #include <QCloseEvent>
-
+#include "databasemanager.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , tariffViewForm(nullptr)
     , settings(new QSettings("Zippo", "GitIgnore", this))
+    , itemsTableMod(nullptr)
 {
     ui->setupUi(this);
     loadSettings();
-
-    // Инициализация соединения с базой данных
-    db = QSqlDatabase::addDatabase("QSQLITE");
+    openDatabase();
 }
 
 MainWindow::~MainWindow()
 {
-    delete ui;
+    if (itemsTableMod) {
+        delete itemsTableMod;
+    }
 
+    delete ui;
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     saveSettings();
     qDebug() << "Settings saved, app will be close.";
+    DatabaseManager::instance().closeDatabase();
     event->accept();
 }
 
@@ -37,6 +40,24 @@ void MainWindow::loadSettings()
     move(pos);
     resize(size);
     ui->label_DbPath->setText(db_path);
+
+    // Check file existing.
+    QFileInfo fileInfo(db_path);
+    if (!fileInfo.exists()) {
+        settings->setValue("is_db_file_ok", false);
+        qWarning() << "DB file not exist!";
+        QMessageBox::critical(this, "Error", "The database file missing.");
+        return;
+    }
+
+    if (fileInfo.size() == 0 || !fileInfo.isReadable()) {
+        settings->setValue("is_db_file_ok", false);
+        qWarning() << "DB file is empty, or not readable!";
+        QMessageBox::critical(this, "Error", "The database file is empty or can't be read.");
+        return;
+    }
+    settings->setValue("is_db_file_ok", true);
+
     // Load other settings as needed
 }
 
@@ -46,6 +67,21 @@ void MainWindow::saveSettings()
     settings->setValue("size", size());
     QString db_path = ui->label_DbPath->text();
     settings->setValue("db_path", db_path);
+    bool is_db_file_ok = DatabaseManager::instance().openDatabase(db_path);
+    settings->setValue("is_db_file_ok", is_db_file_ok);
+}
+
+void MainWindow::openDatabase()
+{
+    QString db_path = ui->label_DbPath->text();
+    qDebug() << "Try to open DB " << db_path;
+    if (!DatabaseManager::instance().openDatabase(db_path)) {
+        // Handle database connection error
+        qDebug() << "Failed to open database";
+        return;
+    }
+    qDebug() << "openDatabase: setupDatabaseModel";
+    setupDatabaseModel();
 }
 
 void MainWindow::on_pushButton_EditTariff_clicked()
@@ -97,13 +133,40 @@ void MainWindow::on_actionSelect_DB_file_triggered()
 
 void MainWindow::setupDatabaseModel()
 {
-    // Удаляем старую модель, если она существует
+    qDebug() << "setupDatabaseModel: A";
     if (itemsTableMod) {
         delete itemsTableMod;
         itemsTableMod = nullptr;
     }
 
+    qDebug() << "setupDatabaseModel: B";
+
+    QSqlDatabase& db = DatabaseManager::instance().database();
+
+    qDebug() << "setupDatabaseModel: C";
+    if (!db.isOpen()) {
+        qDebug() << "Error: Database is not open";
+        return;
+    }
+
+    qDebug() << "setupDatabaseModel: D";
+
     itemsTableMod = new QSqlRelationalTableModel(this, db);
     itemsTableMod->setTable("equipment_items");
+
+    if (!itemsTableMod->select()) {
+        qDebug() << "Error selecting data from table:";
+        qDebug() << "Error details:" << itemsTableMod->lastError().text();
+        QMessageBox::warning(this, "Предупреждение", "Не удалось загрузить данные из таблицы: " + itemsTableMod->lastError().text());
+        return;
+    }
+
+    qDebug() << "setupDatabaseModel: E";
+    ui->tableView_Items->setModel(itemsTableMod);
+    ui->tableView_Items->setItemDelegate(new QSqlRelationalDelegate(ui->tableView_Items));
+    ui->tableView_Items->resizeColumnsToContents();
+    ui->tableView_Items->horizontalHeader()->setStretchLastSection(true);
+
+    qDebug() << "Model setup successfully";
 }
 

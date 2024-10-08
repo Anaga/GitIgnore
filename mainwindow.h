@@ -2,6 +2,9 @@
 #define MAINWINDOW_H
 
 #include "tariffviewform.h"
+#include "databasemanager.h"
+
+
 #include <QMainWindow>
 #include <QDebug>
 #include <QSettings>
@@ -49,10 +52,10 @@ private:
     Ui::MainWindow *ui;
     TariffViewForm *tariffViewForm;
     QSettings *settings;
-    QSqlDatabase db;
-    QSqlRelationalTableModel *itemsTableMod;
+    QSqlRelationalTableModel *itemsTableMod = nullptr;
     void setupDatabaseModel();
     void loadSettings();
     void saveSettings();
+    void openDatabase();
 };
 #endif // MAINWINDOW_H
